@@ -29,6 +29,7 @@ using System.Linq;
 using System.Security.Policy;
 using System.Xml;
 using System.Runtime.Remoting.Contexts;
+using System.Web;
 
 namespace OAuthApp
 {
@@ -48,12 +49,13 @@ namespace OAuthApp
         const string clientId = "PrintingManagermentServer";
         const string clientSecret = "actR0Gt/JIBPnujIpTA0PDmD1IcBzeSMrWSxVy8XmLQ=";
         const string authorizationEndpoint = "https://localhost:7180/oauth2/authorize";
+        const string registerEndpoint = "https://localhost:7180/oauth2/register";
         const string tokenEndpoint = "https://localhost:7180/oauth2/token";
         const string userInfoEndpoint = "https://localhost:7180/oauth2/userinfo";
         // TODO: add redirect_uri for now, but it need to change when for particular client in identity server,
         //     : this is used, for example, for redirect after getting access token from identity server, to client, and after that client will exchange access token for token by itself
         //     : by intend, this uri will be use in 302 response, but in this situation, we catch the response and handle redrirecting, so for now this string only need to check following oauth requirement
-        const string redirectUri = "http://localhost:59867";
+        const string redirectUri = "https://localhost:7209/auth/callback";
 
         private string _id_token = "";
 
@@ -462,6 +464,10 @@ namespace OAuthApp
                     output("user_info" + userinfoResponseText);
                 }
             }
+            catch (WebException ex)
+            {
+                output(ex.Message);
+            }
             catch (Exception ex)
             {
                 output(ex.Message);
@@ -478,11 +484,13 @@ namespace OAuthApp
 
         private async void Register(object sender, RoutedEventArgs e)
         {
-            string register_uri = authorizationEndpoint;
+            string register_uri = registerEndpoint;
             output("Send request to web server: " + register_uri);
 
-            if (!string.IsNullOrEmpty(this.UserName.Text) &&
-                !string.IsNullOrEmpty(this.Password.Text))
+            if (!string.IsNullOrEmpty(this.UserName.Text)
+                && !string.IsNullOrEmpty(this.Password.Text)
+                && !string.IsNullOrEmpty(this.FirstName.Text)
+                && !string.IsNullOrEmpty(this.LastName.Text))
             {
                 RegisterNewUser(register_uri);
             }
@@ -499,14 +507,23 @@ namespace OAuthApp
                 var base64Authentication = Base64Encode(string.Format("{0}:{1}", this.UserName.Text, this.Password.Text));
                 // TODO: current role is not for identity server
                 //var defaultRole = "admin,leader";
+                string requestQuery = string.Format(string.Format("{0}?state={1}&client_id={2}&redirect_uri={3}" +
+                    "&email=doremon1380@gmail.com&first_name={4}&last_name={5}&gender={6}",
+                    registerUserRequestUri, state, clientId, redirectUri, HttpUtility.UrlEncode(this.FirstName.Text.TrimStart().TrimEnd()), HttpUtility.UrlEncode(this.LastName.Text.TrimStart().TrimEnd()), "male"));
 
                 // sends the request
-                HttpWebRequest registerRequest = (HttpWebRequest)WebRequest.Create(string.Format("{0}?prompt=create", registerUserRequestUri));
-                registerRequest.Method = "GET";
-                registerRequest.Headers.Add(string.Format("Authorization: Basic {0}", base64Authentication));
+                HttpWebRequest registerRequest = (HttpWebRequest)WebRequest.Create(requestQuery);
+                registerRequest.Method = "POST";
+                registerRequest.Headers.Add(string.Format("Register: Basic {0}", base64Authentication));
                 registerRequest.Headers.Add(string.Format("Email: {0}", this.Email.Text));
                 registerRequest.ContentType = "application/x-www-form-urlencoded";
                 registerRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*;q=0.8";
+
+                //byte[] _byteVersion = Encoding.ASCII.GetBytes(tokenEndpointBody);
+                //tokenRequest.ContentLength = _byteVersion.Length;
+                //Stream stream = tokenRequest.GetRequestStream();
+                //await stream.WriteAsync(_byteVersion, 0, _byteVersion.Length);
+                //stream.Close();
 
                 output("Request: " + registerUserRequestUri);
                 output("Method: " + registerRequest.Method);

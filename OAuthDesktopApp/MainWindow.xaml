@@ -42,14 +42,19 @@ limitations under the License.
                 <RowDefinition/>
                 <RowDefinition/>
                 <RowDefinition/>
+                <RowDefinition/>
             </Grid.RowDefinitions>
             <TextBlock Grid.Column="0" Grid.Row="0" Margin="2">UserName:</TextBlock>
-            <TextBox Grid.Column="1" Grid.Row="0" Margin="2" x:Name="UserName" Text="doremon1383"></TextBox>
+            <TextBox Grid.Column="1" Grid.Row="0" Margin="2" x:Name="UserName" Text="doremon1381"></TextBox>
             <TextBlock Grid.Row="1" Grid.Column="0" Margin="2">Password:</TextBlock>
             <TextBox Grid.Row="1" Grid.Column="1" Margin="2" x:Name="Password" Text="*Nokia1200"></TextBox>
             <TextBlock Grid.Row="2" Grid.Column="0" Margin="2">Email:</TextBlock>
             <TextBox Grid.Row="2" Grid.Column="1" Margin="2" x:Name="Email" Text="doremon1380@gmail.com"></TextBox>
-            <Button Grid.Row="4" Grid.Column="1" Content="Change Password" Click="ChangePassword" Margin="2" IsEnabled="False"></Button>
+            <TextBlock Grid.Row="3" Grid.Column="0" Margin="2">FirstName:</TextBlock>
+            <TextBox Grid.Row="3" Grid.Column="1" Margin="2" x:Name="FirstName" Text="Tuấn"></TextBox>
+            <TextBlock Grid.Row="4" Grid.Column="0" Margin="2">LastName:</TextBlock>
+            <TextBox Grid.Row="4" Grid.Column="1" Margin="2" x:Name="LastName" Text="Nguyễn Văn"></TextBox>
+            <!--<Button Grid.Row="4" Grid.Column="1" Content="Change Password" Click="ChangePassword" Margin="2" IsEnabled="False"></Button>-->
         </Grid>
 
         <TextBox x:Name="textBoxOutput" HorizontalAlignment="Left" Height="240" Margin="22,239,0,0" TextWrapping="Wrap" Text="" VerticalAlignment="Top" Width="480"
