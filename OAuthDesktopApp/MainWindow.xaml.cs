@@ -30,6 +30,9 @@ using System.Security.Policy;
 using System.Xml;
 using System.Runtime.Remoting.Contexts;
 using System.Web;
+using Microsoft.IdentityModel.Tokens;
+using System.Net.WebSockets;
+using static System.Net.WebRequestMethods;
 
 namespace OAuthApp
 {
@@ -40,8 +43,8 @@ namespace OAuthApp
     {
         // client configuration
         // TODO: google
-        const string google_clientSecret = "";
-        const string google_clientId = "";
+        //const string google_clientSecret = "";
+        const string google_clientId = "558160357396-q5qp0ppf4r5svc0g0smshfs8cdcffkm3.apps.googleusercontent.com";
         const string google_authorizationEndpoint = "https://accounts.google.com/o/oauth2/auth";
         const string google_tokenEndpoint = "https://oauth2.googleapis.com/token";
         const string google_userInfoEndpoint = "https://www.googleapis.com/oauth2/userinfo";
@@ -52,6 +55,7 @@ namespace OAuthApp
         const string registerEndpoint = "https://localhost:7180/oauth2/register";
         const string tokenEndpoint = "https://localhost:7180/oauth2/token";
         const string userInfoEndpoint = "https://localhost:7180/oauth2/userinfo";
+        const string jwks_uri = "https://localhost:7180/oauth2/jwks";
         // TODO: add redirect_uri for now, but it need to change when for particular client in identity server,
         //     : this is used, for example, for redirect after getting access token from identity server, to client, and after that client will exchange access token for token by itself
         //     : by intend, this uri will be use in 302 response, but in this situation, we catch the response and handle redrirecting, so for now this string only need to check following oauth requirement
@@ -69,8 +73,8 @@ namespace OAuthApp
         {
             var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
-            //var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-            var port = 59867;
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            //var port = 59867;
             listener.Stop();
             return port;
         }
@@ -96,14 +100,15 @@ namespace OAuthApp
 
             string nonce = randomDataBase64url(32);
             // Creates the OAuth 2.0 authorization request.
-            string authorizationRequest = string.Format("{0}?response_type=code&scope=openid%20profile%20email&redirect_uri={1}&client_id={2}&state={3}&code_challenge={4}&code_challenge_method={5}&nonce={6}",
+            string authorizationRequest = string.Format("{0}?response_type=code&scope=openid%20profile%20email&redirect_uri={1}&client_id={2}&state={3}&code_challenge={4}&code_challenge_method={5}&nonce={6}&authuser={7}",
                 google_authorizationEndpoint,
                 System.Uri.EscapeDataString(redirectURI),
                 google_clientId,
                 state,
                 code_challenge,
                 code_challenge_method,
-                nonce);
+                nonce,
+                "doremon1381@gmail.com");
             // TODO: try to use implicit grant with google, but not yet success
             //string authorizationRequest = string.Format("{0}?response_type=token&scope=openid%20profile%20email&redirect_uri={1}&client_id={2}&state={3}",
             //    authorizationEndpoint,
@@ -111,8 +116,8 @@ namespace OAuthApp
             //    clientID,
             //    state);
 
-            output("Google request: " + authorizationEndpoint);
-            output("scope=openid%20profile%20email");
+            output("Google request: " + google_authorizationEndpoint);
+            //output("scope=openid%20profile%20email");
             // Opens request in the browser.
             System.Diagnostics.Process.Start(authorizationRequest);
             // Waits for the OAuth authorization response.
@@ -149,6 +154,7 @@ namespace OAuthApp
             }
 
             // extracts the code
+            var sr = context.Request.QueryString.ToString();
             var code = context.Request.QueryString.Get("code");
             var incoming_state = context.Request.QueryString.Get("state");
             var scope = context.Request.QueryString.Get("scope");
@@ -165,7 +171,7 @@ namespace OAuthApp
             output("Authorization code: " + code);
 
             // Starts the code exchange at the Token Endpoint.
-            performCodeExchange(code, code_verifier, redirectURI);
+            performCodeExchange(code, code_verifier, redirectURI, nonce);
         }
 
         /// <summary>
@@ -175,24 +181,29 @@ namespace OAuthApp
         /// <param name="code"></param>
         /// <param name="code_verifier"></param>
         /// <param name="redirectURI"></param>
-        async void performCodeExchange(string code, string code_verifier, string redirectURI)
+        async void performCodeExchange(string code, string code_verifier, string redirectURI, string nonce)
         {
             output("Exchanging code for tokens...");
 
             string state = randomDataBase64url(32);
             // builds the  request
             //string tokenRequestURI = "https://www.googleapis.com/oauth2/v4/token";
-            string tokenRequestURI = "https://localhost:7180/oauth2/authentication/google";
+            string tokenRequestURI = "https://localhost:7180/oauth2/authorize/google";
+            string redirectUri = System.Uri.EscapeDataString(redirectURI);
 
+            string requestBody = $"code={code}&state={state}&client_id={clientId}&client_secret={clientSecret}&grant_type=authorization_code&code_verifier={code_verifier}&redirect_uri={redirectUri}&nonce={nonce}";
             // sends the request
             // TODO: need to send state, but I ignore that step for now
-            HttpWebRequest tokenRequest = (HttpWebRequest)WebRequest.Create($"{tokenRequestURI}?code={code}&state={state}");
-            //tokenRequest.Method = "POST";
-            tokenRequest.Method = "GET";
+            HttpWebRequest tokenRequest = (HttpWebRequest)WebRequest.Create($"{tokenRequestURI}");
+            tokenRequest.Method = "POST";
+            //tokenRequest.Method = "GET";
             tokenRequest.ContentType = "application/x-www-form-urlencoded";
             tokenRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
-            tokenRequest.Headers.Add(string.Format("code_verifier:{0}", code_verifier));
-            tokenRequest.Headers.Add(string.Format("redirect_uri:{0}", System.Uri.EscapeDataString(redirectURI)));
+            byte[] _byteVersion = Encoding.ASCII.GetBytes(requestBody);
+            tokenRequest.ContentLength = _byteVersion.Length;
+            Stream stream = tokenRequest.GetRequestStream();
+            await stream.WriteAsync(_byteVersion, 0, _byteVersion.Length);
+            stream.Close();
 
             try
             {
@@ -204,13 +215,13 @@ namespace OAuthApp
                 output("Request: " + tokenRequestURI);
                 output("Method: " + tokenRequest.Method);
                 //output("Header: code :" + tokenRequest.Headers["code"].ToString());
-                output("Header: code_verifier :" + tokenRequest.Headers["code_verifier"].ToString());
+                //output("Header: code_verifier :" + tokenRequest.Headers["code_verifier"].ToString());
 
                 using (StreamReader reader = new StreamReader(tokenResponse.GetResponseStream()))
                 {
                     // reads response body
                     string responseText = await reader.ReadToEndAsync();
-                    output("user_info: " + responseText);
+                    output("user_info: " + JsonConvert.SerializeObject(responseText));
                 }
 
             }
@@ -326,6 +337,8 @@ namespace OAuthApp
         }
         #endregion
 
+        private static HttpListener currentHttpListener = null;
+        //private static WebSocketServer currentHttpListener = null;
         private async void AuthorizationCodeFlow(object sender, RoutedEventArgs e)
         {
             // Generates state and PKCE values.
@@ -336,60 +349,118 @@ namespace OAuthApp
             const string code_challenge_method = "S256";
             var base64Authentication = Base64Encode(string.Format("{0}:{1}", this.UserName.Text, this.Password.Text));
 
+            string redirectURI = string.Format("http://{0}:{1}/", IPAddress.Loopback, GetRandomUnusedPort());
+
             // Creates the OAuth 2.0 authorization request.
-            string authorizationRequest = string.Format("{0}?response_type=code&scope=openid%20profile%20email%20offline_access&redirect_uri={1}&client_id={2}&state={3}&code_challenge={4}&code_challenge_method={5}&nonce={6}",
+            string authorizationRequest = string.Format("{0}?response_type=code&scope=openid%20profile%20email%20offline_access&redirect_uri={1}&client_id={2}&state={3}&code_challenge={4}&code_challenge_method={5}&nonce={6}&prompt={7}",
                 authorizationEndpoint,
-                System.Uri.EscapeDataString(redirectUri),
+                System.Uri.EscapeDataString(redirectURI),
                 clientId,
                 state,
                 code_challenge,
                 code_challenge_method,
-                nonce);
+                nonce,
+                "none");
+
+            // Creates an HttpListener to listen for requests on that redirect URI.
+            currentHttpListener = new HttpListener();
+            currentHttpListener.Prefixes.Add(redirectURI);
+            output("Listening..");
+            currentHttpListener.Start();
 
             output("Send request to web server: " + authorizationEndpoint);
 
-            HttpWebRequest testRequest = (HttpWebRequest)WebRequest.Create(authorizationRequest);
-            testRequest.Method = "GET";
-            testRequest.Headers.Add(string.Format("Authorization: Basic {0}", base64Authentication));
-            testRequest.ContentType = "application/x-www-form-urlencoded";
-            testRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*;q=0.8";
             string authorizationCode = "";
             string incomingState = "";
             try
             {
+                HttpWebRequest testRequest = (HttpWebRequest)WebRequest.Create(authorizationRequest);
+                testRequest.Method = "GET";
+                testRequest.Headers.Add(string.Format("Authorization: Basic {0}", base64Authentication));
+                testRequest.ContentType = "application/x-www-form-urlencoded";
+                testRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*;q=0.8";
                 // gets the response
                 WebResponse tokenResponse = await testRequest.GetResponseAsync();
 
-                using (StreamReader reader = new StreamReader(tokenResponse.GetResponseStream()))
+                // Waits for the OAuth authorization response.
+                HttpListenerContext context = await currentHttpListener.GetContextAsync();
+                // Brings this app back to the foreground.
+                this.Activate();
+
+                // Sends an HTTP response to the browser.
+                var response = context.Response;
+
+                currentHttpListener.Stop();
+
+                // Checks for errors.
+                if (context.Request.QueryString.Get("error") != null)
                 {
-                    // reads response body
-                    var temp = await reader.ReadToEndAsync();
-                    var sr = JsonConvert.DeserializeObject<Dictionary<string, string>>(temp);
-                    authorizationCode = sr["code"];
-                    incomingState = sr["state"];
-                    output("user_info: " + authorizationCode);
+                    output(String.Format("OAuth authorization error: {0}.", context.Request.QueryString.Get("error")));
+                    return;
                 }
+                if (context.Request.QueryString.Get("code") == null
+                    || context.Request.QueryString.Get("state") == null)
+                {
+                    output("Malformed authorization response. " + context.Request.QueryString);
+                    return;
+                }
+
+                // extracts the code
+                var sr = context.Request.QueryString.ToString();
+                authorizationCode = context.Request.QueryString.Get("code");
+                incomingState = context.Request.QueryString.Get("state");
+                var scope = context.Request.QueryString.Get("scope");
+                var authUser = context.Request.QueryString.Get("authuser");
+                var promt = context.Request.QueryString.Get("prompt");
             }
-            catch (WebException ex)
+            catch (Exception ex)
             {
                 output(ex.Message);
-                if (ex.Status == WebExceptionStatus.ProtocolError)
-                {
-                    //var response = ex.Response as HttpWebResponse;
-                    //if (response != null)
-                    //{
-                    //    output("HTTP: " + response.StatusCode);
-                    //    using (StreamReader reader = new StreamReader(response.GetResponseStream()))
-                    //    {
-                    //        // reads response body
-                    //        string error = await reader.ReadToEndAsync();
-                    //        output(error);
-                    //    }
-                    //}
-
-                }
                 return;
             }
+
+            //HttpWebRequest testRequest = (HttpWebRequest)WebRequest.Create(authorizationRequest);
+            //testRequest.Method = "GET";
+            //testRequest.Headers.Add(string.Format("Authorization: Basic {0}", base64Authentication));
+            //testRequest.ContentType = "application/x-www-form-urlencoded";
+            //testRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*;q=0.8";
+            //string authorizationCode = "";
+            //string incomingState = "";
+            //try
+            //{
+            //    // gets the response
+            //    WebResponse tokenResponse = await testRequest.GetResponseAsync();
+
+            //    using (StreamReader reader = new StreamReader(tokenResponse.GetResponseStream()))
+            //    {
+            //        // reads response body
+            //        var temp = await reader.ReadToEndAsync();
+            //        var sr = JsonConvert.DeserializeObject<Dictionary<string, string>>(temp);
+            //        authorizationCode = sr["code"];
+            //        incomingState = sr["state"];
+            //        output("user_info: " + authorizationCode);
+            //    }
+            //}
+            //catch (WebException ex)
+            //{
+            //    output(ex.Message);
+            //    if (ex.Status == WebExceptionStatus.ProtocolError)
+            //    {
+            //        //var response = ex.Response as HttpWebResponse;
+            //        //if (response != null)
+            //        //{
+            //        //    output("HTTP: " + response.StatusCode);
+            //        //    using (StreamReader reader = new StreamReader(response.GetResponseStream()))
+            //        //    {
+            //        //        // reads response body
+            //        //        string error = await reader.ReadToEndAsync();
+            //        //        output(error);
+            //        //    }
+            //        //}
+
+            //    }
+            //    return;
+            //}
 
             if (incomingState != state)
             {
@@ -410,13 +481,29 @@ namespace OAuthApp
                 AuthenticationWithCode(authorizationCode, code_verifier, state1);
             }
         }
+        private void Receive()
+        {
+            currentHttpListener.BeginGetContext(new AsyncCallback(ListenerCallback), currentHttpListener);
+        }
 
-        private async void AuthenticationWithCode(string authorizationCode, string codeVerifier, string state)
+        private void ListenerCallback(IAsyncResult result)
+        {
+            if (currentHttpListener.IsListening)
+            {
+                var context = currentHttpListener.EndGetContext(result);
+                var request = context.Request;
+                // Handle the request (e.g., read headers, process data, etc.)
+                output($"Received request: {request.Url}");
+                Receive(); // Continue listening for more requests
+            }
+        }
+
+        private async Task AuthenticationWithCode(string authorizationCode, string codeVerifier, string state)
         {
             try
             {
-                string tokenEndpointBody = string.Format("code={0}&client_id={1}&client_secret={2}&audience={3}&grant_type=authorization_code&redirect_uri={4}&code_verifier={5}&state={6}&scope="
-                    , authorizationCode, clientId, clientSecret, "http://localhost:7209", redirectUri, codeVerifier, state);
+                string tokenEndpointBody = string.Format("code={0}&client_id={1}&client_secret={2}&audience={3}&grant_type=authorization_code&redirect_uri={4}&code_verifier={5}&scope="
+                    , authorizationCode, clientId, clientSecret, "http://localhost:7209", redirectUri, codeVerifier);
 
                 // TODO: send to identityserver to get id token and access token
                 HttpWebRequest tokenRequest = (HttpWebRequest)WebRequest.Create(tokenEndpoint);
@@ -430,6 +517,7 @@ namespace OAuthApp
 
                 string accessToken = "";
                 string idToken = "";
+                string publicKeyStr = null;
                 // TODO:  exchange for user_info
                 //     : check in web db user token by user name or email
                 //     : if do not have one, create one for new user_info
@@ -443,9 +531,15 @@ namespace OAuthApp
                     var sr = JsonConvert.DeserializeObject<Dictionary<string, string>>(temp);
                     accessToken = sr["access_token"];
                     idToken = sr["id_token"];
+                    //publicKeyStr = sr["public_key"];
                 }
 
-                output("id_token" + idToken);
+                output("access_token: " + accessToken);
+                output("id_token: " + idToken);
+                //output("public_key: " + publicKeyStr);
+
+                var publicKey = await JsonToRSAPublicKey(publicKeyStr);
+                var isIdTokenValidate = VeriryJwtSignature(publicKey, idToken);
 
                 // sends the request
                 HttpWebRequest userinfoRequest = (HttpWebRequest)WebRequest.Create(userInfoEndpoint);
@@ -475,6 +569,47 @@ namespace OAuthApp
             }
         }
 
+        public async Task<RSAParameters> JsonToRSAPublicKey(string publicKeyStr)
+        {
+            // sends the request
+            HttpWebRequest publicKeyRequest = (HttpWebRequest)WebRequest.Create(jwks_uri);
+            publicKeyRequest.Method = "GET";
+            //userinfoRequest.Headers.Add(string.Format("Authorization: Bearer {0}", accessToken));
+            publicKeyRequest.ContentType = "application/x-www-form-urlencoded";
+            publicKeyRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+
+            string publicKey = "";
+            // gets the response
+            WebResponse userinfoResponse = await publicKeyRequest.GetResponseAsync();
+            using (StreamReader userinfoResponseReader = new StreamReader(userinfoResponse.GetResponseStream()))
+            {
+                // reads response body
+                publicKey = await userinfoResponseReader.ReadToEndAsync();
+                //output(userinfoResponseText);
+                //output("user_info" + userinfoResponseText);
+            }
+
+            return JsonConvert.DeserializeObject<RSAParameters>(publicKey);
+        }
+
+        public static bool VeriryJwtSignature(RSAParameters publicKey, string token)
+        {
+            var tokenHandler = new JwtSecurityTokenHandler();
+
+            // Verify JWT signature
+            var validationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new RsaSecurityKey(publicKey),
+                ValidateIssuer = false, // Customize as needed
+                ValidateAudience = false, // Customize as needed
+            };
+
+            var claimsPrincipal = tokenHandler.ValidateToken(token, validationParameters, out _);
+            // 'claimsPrincipal' contains the validated claims
+
+            return claimsPrincipal.Claims.Count() > 0;
+        }
 
         public static string Base64Encode(string userNamePassword)
         {
