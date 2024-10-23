@@ -33,6 +33,10 @@ using System.Web;
 using Microsoft.IdentityModel.Tokens;
 using System.Net.WebSockets;
 using static System.Net.WebRequestMethods;
+using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace OAuthApp
 {
@@ -49,17 +53,17 @@ namespace OAuthApp
         const string google_tokenEndpoint = "https://oauth2.googleapis.com/token";
         const string google_userInfoEndpoint = "https://www.googleapis.com/oauth2/userinfo";
         // TODO: for my identity client
-        const string clientId = "PrintingManagermentServer";
+        const string clientId = "ManagermentServer";
         const string clientSecret = "actR0Gt/JIBPnujIpTA0PDmD1IcBzeSMrWSxVy8XmLQ=";
         const string authorizationEndpoint = "https://localhost:7180/oauth2/authorize";
-        const string registerEndpoint = "https://localhost:7180/oauth2/register";
+        const string registerEndpoint = "https://localhost:7180/auth/register";
         const string tokenEndpoint = "https://localhost:7180/oauth2/token";
         const string userInfoEndpoint = "https://localhost:7180/oauth2/userinfo";
         const string jwks_uri = "https://localhost:7180/oauth2/jwks";
         // TODO: add redirect_uri for now, but it need to change when for particular client in identity server,
         //     : this is used, for example, for redirect after getting access token from identity server, to client, and after that client will exchange access token for token by itself
         //     : by intend, this uri will be use in 302 response, but in this situation, we catch the response and handle redrirecting, so for now this string only need to check following oauth requirement
-        const string redirectUri = "https://localhost:7209/auth/callback";
+        const string redirectUri = "http://127.0.0.1/login";
 
         private string _id_token = "";
 
@@ -100,15 +104,14 @@ namespace OAuthApp
 
             string nonce = randomDataBase64url(32);
             // Creates the OAuth 2.0 authorization request.
-            string authorizationRequest = string.Format("{0}?response_type=code&scope=openid%20profile%20email&redirect_uri={1}&client_id={2}&state={3}&code_challenge={4}&code_challenge_method={5}&nonce={6}&authuser={7}",
+            string authorizationRequest = string.Format("{0}?response_type=code&scope=openid%20profile%20email&redirect_uri={1}&client_id={2}&state={3}&code_challenge={4}&code_challenge_method={5}&nonce={6}&access_type=offline",
                 google_authorizationEndpoint,
                 System.Uri.EscapeDataString(redirectURI),
                 google_clientId,
                 state,
                 code_challenge,
                 code_challenge_method,
-                nonce,
-                "doremon1381@gmail.com");
+                nonce);
             // TODO: try to use implicit grant with google, but not yet success
             //string authorizationRequest = string.Format("{0}?response_type=token&scope=openid%20profile%20email&redirect_uri={1}&client_id={2}&state={3}",
             //    authorizationEndpoint,
@@ -223,6 +226,8 @@ namespace OAuthApp
                     string responseText = await reader.ReadToEndAsync();
                     output("user_info: " + JsonConvert.SerializeObject(responseText));
                 }
+
+                //RefershAccessToken(refreshToken)
 
             }
             catch (WebException ex)
@@ -349,7 +354,7 @@ namespace OAuthApp
             const string code_challenge_method = "S256";
             var base64Authentication = Base64Encode(string.Format("{0}:{1}", this.UserName.Text, this.Password.Text));
 
-            string redirectURI = string.Format("http://{0}:{1}/", IPAddress.Loopback, GetRandomUnusedPort());
+            string redirectURI = string.Format("http://{0}:{1}/login/", IPAddress.Loopback, GetRandomUnusedPort());
 
             // Creates the OAuth 2.0 authorization request.
             string authorizationRequest = string.Format("{0}?response_type=code&scope=openid%20profile%20email%20offline_access&redirect_uri={1}&client_id={2}&state={3}&code_challenge={4}&code_challenge_method={5}&nonce={6}&prompt={7}",
@@ -419,49 +424,6 @@ namespace OAuthApp
                 return;
             }
 
-            //HttpWebRequest testRequest = (HttpWebRequest)WebRequest.Create(authorizationRequest);
-            //testRequest.Method = "GET";
-            //testRequest.Headers.Add(string.Format("Authorization: Basic {0}", base64Authentication));
-            //testRequest.ContentType = "application/x-www-form-urlencoded";
-            //testRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*;q=0.8";
-            //string authorizationCode = "";
-            //string incomingState = "";
-            //try
-            //{
-            //    // gets the response
-            //    WebResponse tokenResponse = await testRequest.GetResponseAsync();
-
-            //    using (StreamReader reader = new StreamReader(tokenResponse.GetResponseStream()))
-            //    {
-            //        // reads response body
-            //        var temp = await reader.ReadToEndAsync();
-            //        var sr = JsonConvert.DeserializeObject<Dictionary<string, string>>(temp);
-            //        authorizationCode = sr["code"];
-            //        incomingState = sr["state"];
-            //        output("user_info: " + authorizationCode);
-            //    }
-            //}
-            //catch (WebException ex)
-            //{
-            //    output(ex.Message);
-            //    if (ex.Status == WebExceptionStatus.ProtocolError)
-            //    {
-            //        //var response = ex.Response as HttpWebResponse;
-            //        //if (response != null)
-            //        //{
-            //        //    output("HTTP: " + response.StatusCode);
-            //        //    using (StreamReader reader = new StreamReader(response.GetResponseStream()))
-            //        //    {
-            //        //        // reads response body
-            //        //        string error = await reader.ReadToEndAsync();
-            //        //        output(error);
-            //        //    }
-            //        //}
-
-            //    }
-            //    return;
-            //}
-
             if (incomingState != state)
             {
                 output("state is not the same!");
@@ -474,11 +436,11 @@ namespace OAuthApp
             {
                 // Starts the code exchange at the Token Endpoint.
                 // TODO: nonce will be received from web server, along with location uri, redirect uri
-                nonce = randomDataBase64url(32);
-                string state1 = randomDataBase64url(32);
+                //nonce = randomDataBase64url(32);
+                //string state1 = randomDataBase64url(32);
 
                 //basicAuthentication("https://localhost:7180/oauth2/authorize", clientId, redirectUri, state, nonce);
-                AuthenticationWithCode(authorizationCode, code_verifier, state1);
+                AuthenticationWithCode(authorizationCode, code_verifier, redirectURI);
             }
         }
         private void Receive()
@@ -498,12 +460,12 @@ namespace OAuthApp
             }
         }
 
-        private async Task AuthenticationWithCode(string authorizationCode, string codeVerifier, string state)
+        private async Task AuthenticationWithCode(string authorizationCode, string codeVerifier, string redirectURI)
         {
             try
             {
                 string tokenEndpointBody = string.Format("code={0}&client_id={1}&client_secret={2}&audience={3}&grant_type=authorization_code&redirect_uri={4}&code_verifier={5}&scope="
-                    , authorizationCode, clientId, clientSecret, "http://localhost:7209", redirectUri, codeVerifier);
+                    , authorizationCode, clientId, clientSecret, "http://localhost:7209", redirectURI, codeVerifier);
 
                 // TODO: send to identityserver to get id token and access token
                 HttpWebRequest tokenRequest = (HttpWebRequest)WebRequest.Create(tokenEndpoint);
@@ -517,6 +479,7 @@ namespace OAuthApp
 
                 string accessToken = "";
                 string idToken = "";
+                string refreshToken = "";
                 string publicKeyStr = null;
                 // TODO:  exchange for user_info
                 //     : check in web db user token by user name or email
@@ -528,15 +491,15 @@ namespace OAuthApp
                 {
                     // reads response body
                     var temp = await reader.ReadToEndAsync();
+
                     var sr = JsonConvert.DeserializeObject<Dictionary<string, string>>(temp);
                     accessToken = sr["access_token"];
                     idToken = sr["id_token"];
-                    //publicKeyStr = sr["public_key"];
+                    refreshToken = sr["refresh_token"];
                 }
 
-                output("access_token: " + accessToken);
-                output("id_token: " + idToken);
-                //output("public_key: " + publicKeyStr);
+                //output("access_token: " + accessToken);
+                //output("id_token: " + idToken);
 
                 var publicKey = await JsonToRSAPublicKey(publicKeyStr);
                 var isIdTokenValidate = VeriryJwtSignature(publicKey, idToken);
@@ -557,15 +520,57 @@ namespace OAuthApp
                     //output(userinfoResponseText);
                     output("user_info" + userinfoResponseText);
                 }
+
+                //output("refresh access Token");
+                await RefershAccessToken(refreshToken);
             }
             catch (WebException ex)
             {
-                output(ex.Message);
+                if (ex.Status == WebExceptionStatus.ProtocolError)
+                {
+                    var response = ex.Response as HttpWebResponse;
+                    if (response != null)
+                    {
+                        output("HTTP: " + response.StatusCode);
+                        using (StreamReader reader = new StreamReader(response.GetResponseStream()))
+                        {
+                            // reads response body
+                            string responseText = await reader.ReadToEndAsync();
+                            var details = JsonConvert.DeserializeObject<ProblemDetails>(responseText);
+                            output("error: " + $"status: {details.Status}; message: {details.Detail}");
+                        }
+                    }
+
+                }
             }
             catch (Exception ex)
             {
-                output(ex.Message);
-                //throw;
+                output("error" + ex.Message);
+            }
+        }
+
+        private async Task RefershAccessToken(string refreshToken)
+        {
+            string refreshAccessTokenBody = string.Format("client_id={0}&client_secret={1}&audience={2}&refresh_token={3}&grant_type=refresh_token&scope=openid%20profile"
+                , clientId, clientSecret, "http://localhost:7209", refreshToken);
+
+            HttpWebRequest refreshAccessToken = (HttpWebRequest)WebRequest.Create(tokenEndpoint);
+            refreshAccessToken.Method = "POST";
+            refreshAccessToken.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+            byte[] _byteVersion = Encoding.ASCII.GetBytes(refreshAccessTokenBody);
+            refreshAccessToken.ContentLength = _byteVersion.Length;
+            Stream stream = refreshAccessToken.GetRequestStream();
+            await stream.WriteAsync(_byteVersion, 0, _byteVersion.Length);
+            stream.Close();
+
+            WebResponse serverResponse = await refreshAccessToken.GetResponseAsync();
+            using (StreamReader reader = new StreamReader(serverResponse.GetResponseStream()))
+            {
+                // reads response body
+                var temp = await reader.ReadToEndAsync();
+
+                //var sr = JsonConvert.DeserializeObject<Dictionary<string, string>>(temp);
+                output("refresh access token result: " + temp);
             }
         }
 
@@ -592,7 +597,7 @@ namespace OAuthApp
             return JsonConvert.DeserializeObject<RSAParameters>(publicKey);
         }
 
-        public static bool VeriryJwtSignature(RSAParameters publicKey, string token)
+        public bool VeriryJwtSignature(RSAParameters publicKey, string token)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
 
@@ -605,10 +610,21 @@ namespace OAuthApp
                 ValidateAudience = false, // Customize as needed
             };
 
-            var claimsPrincipal = tokenHandler.ValidateToken(token, validationParameters, out _);
-            // 'claimsPrincipal' contains the validated claims
+            ClaimsPrincipal userIdenttiy = null;
 
-            return claimsPrincipal.Claims.Count() > 0;
+            try
+            {
+                userIdenttiy = tokenHandler.ValidateToken(token, validationParameters, out _);
+
+            }
+            catch (Exception ex)
+            {
+                output(ex.Message);
+                return false;
+            }
+
+            // 'claimsPrincipal' contains the validated claims
+            return userIdenttiy.Claims.Count() > 0;
         }
 
         public static string Base64Encode(string userNamePassword)
@@ -625,6 +641,7 @@ namespace OAuthApp
             if (!string.IsNullOrEmpty(this.UserName.Text)
                 && !string.IsNullOrEmpty(this.Password.Text)
                 && !string.IsNullOrEmpty(this.FirstName.Text)
+                && !string.IsNullOrEmpty(this.Email.Text)
                 && !string.IsNullOrEmpty(this.LastName.Text))
             {
                 RegisterNewUser(register_uri);
@@ -642,9 +659,9 @@ namespace OAuthApp
                 var base64Authentication = Base64Encode(string.Format("{0}:{1}", this.UserName.Text, this.Password.Text));
                 // TODO: current role is not for identity server
                 //var defaultRole = "admin,leader";
-                string requestQuery = string.Format(string.Format("{0}?state={1}&client_id={2}&redirect_uri={3}" +
-                    "&email=doremon1380@gmail.com&first_name={4}&last_name={5}&gender={6}",
-                    registerUserRequestUri, state, clientId, redirectUri, HttpUtility.UrlEncode(this.FirstName.Text.TrimStart().TrimEnd()), HttpUtility.UrlEncode(this.LastName.Text.TrimStart().TrimEnd()), "male"));
+                string requestQuery = string.Format(string.Format("{0}?state={1}&client_id={2}" +
+                    "&email={3}&first_name={4}&last_name={5}&gender={6}",
+                    registerUserRequestUri, state, clientId, this.Email.Text, HttpUtility.UrlEncode(this.FirstName.Text.TrimStart().TrimEnd()), HttpUtility.UrlEncode(this.LastName.Text.TrimStart().TrimEnd()), "male"));
 
                 // sends the request
                 HttpWebRequest registerRequest = (HttpWebRequest)WebRequest.Create(requestQuery);
@@ -653,12 +670,6 @@ namespace OAuthApp
                 registerRequest.Headers.Add(string.Format("Email: {0}", this.Email.Text));
                 registerRequest.ContentType = "application/x-www-form-urlencoded";
                 registerRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*;q=0.8";
-
-                //byte[] _byteVersion = Encoding.ASCII.GetBytes(tokenEndpointBody);
-                //tokenRequest.ContentLength = _byteVersion.Length;
-                //Stream stream = tokenRequest.GetRequestStream();
-                //await stream.WriteAsync(_byteVersion, 0, _byteVersion.Length);
-                //stream.Close();
 
                 output("Request: " + registerUserRequestUri);
                 output("Method: " + registerRequest.Method);
@@ -684,6 +695,73 @@ namespace OAuthApp
         {
 
         }
+    }
+
+    //
+    // Summary:
+    //     A machine-readable format for specifying errors in HTTP API responses based on
+    //     https://tools.ietf.org/html/rfc7807.
+    public class ProblemDetails
+    {
+        public ProblemDetails(){ }
+
+        //
+        // Summary:
+        //     A URI reference [RFC3986] that identifies the problem type. This specification
+        //     encourages that, when dereferenced, it provide human-readable documentation for
+        //     the problem type (e.g., using HTML [W3C.REC-html5-20141028]). When this member
+        //     is not present, its value is assumed to be "about:blank".
+        [System.Text.Json.Serialization.JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonPropertyName("type")]
+        [JsonPropertyOrder(-5)]
+        public string Type { get; set; }
+        //
+        // Summary:
+        //     A short, human-readable summary of the problem type. It SHOULD NOT change from
+        //     occurrence to occurrence of the problem, except for purposes of localization(e.g.,
+        //     using proactive content negotiation; see[RFC7231], Section 3.4).
+        [System.Text.Json.Serialization.JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonPropertyName("title")]
+        [JsonPropertyOrder(-4)]
+        public string Title { get; set; }
+        //
+        // Summary:
+        //     The HTTP status code([RFC7231], Section 6) generated by the origin server for
+        //     this occurrence of the problem.
+        [System.Text.Json.Serialization.JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonPropertyName("status")]
+        [JsonPropertyOrder(-3)]
+        public int Status { get; set; }
+        //
+        // Summary:
+        //     A human-readable explanation specific to this occurrence of the problem.
+        [System.Text.Json.Serialization.JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonPropertyName("detail")]
+        [JsonPropertyOrder(-2)]
+        public string Detail { get; set; }
+        //
+        // Summary:
+        //     A URI reference that identifies the specific occurrence of the problem. It may
+        //     or may not yield further information if dereferenced.
+        [System.Text.Json.Serialization.JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonPropertyName("instance")]
+        [JsonPropertyOrder(-1)]
+        public string Instance { get; set; }
+        //
+        // Summary:
+        //     Gets the System.Collections.Generic.IDictionary`2 for extension members.
+        //
+        //     Problem type definitions MAY extend the problem details object with additional
+        //     members. Extension members appear in the same namespace as other members of a
+        //     problem type.
+        //
+        // Remarks:
+        //     The round-tripping behavior for Microsoft.AspNetCore.Mvc.ProblemDetails.Extensions
+        //     is determined by the implementation of the Input \ Output formatters. In particular,
+        //     complex types or collection types may not round-trip to the original type when
+        //     using the built-in JSON or XML formatters.
+        [System.Text.Json.Serialization.JsonExtensionData]
+        public IDictionary<string, object> Extensions { get; set; }
     }
 
     /// <summary>
