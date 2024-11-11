@@ -21,21 +21,12 @@ using System.Net.Sockets;
 using System.Text;
 using System.Windows;
 using System.Security.Cryptography;
-using System.Threading;
 using System.Threading.Tasks;
-using Newtonsoft.Json.Linq;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
-using System.Security.Policy;
-using System.Xml;
-using System.Runtime.Remoting.Contexts;
 using System.Web;
 using Microsoft.IdentityModel.Tokens;
-using System.Net.WebSockets;
-using static System.Net.WebRequestMethods;
 using System.Security.Claims;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace OAuthApp
@@ -94,12 +85,12 @@ namespace OAuthApp
             // Creates a redirect URI using an available port on the loopback address.
             string redirectURI = string.Format("http://{0}:{1}/", IPAddress.Loopback, GetRandomUnusedPort());
             //string redirectURI1 = string.Format("http://localhost:5173/call-back");
-            output("redirect URI: " + redirectURI);
+            Output("redirect URI: " + redirectURI);
 
             // Creates an HttpListener to listen for requests on that redirect URI.
             var http = new HttpListener();
             http.Prefixes.Add(redirectURI);
-            output("Listening..");
+            Output("Listening..");
             http.Start();
 
             string nonce = randomDataBase64url(32);
@@ -119,7 +110,7 @@ namespace OAuthApp
             //    clientID,
             //    state);
 
-            output("Google request: " + google_authorizationEndpoint);
+            Output("Google request: " + google_authorizationEndpoint);
             //output("scope=openid%20profile%20email");
             // Opens request in the browser.
             System.Diagnostics.Process.Start(authorizationRequest);
@@ -146,13 +137,13 @@ namespace OAuthApp
             // Checks for errors.
             if (context.Request.QueryString.Get("error") != null)
             {
-                output(String.Format("OAuth authorization error: {0}.", context.Request.QueryString.Get("error")));
+                Output(String.Format("OAuth authorization error: {0}.", context.Request.QueryString.Get("error")));
                 return;
             }
             if (context.Request.QueryString.Get("code") == null
                 || context.Request.QueryString.Get("state") == null)
             {
-                output("Malformed authorization response. " + context.Request.QueryString);
+                Output("Malformed authorization response. " + context.Request.QueryString);
                 return;
             }
 
@@ -168,10 +159,10 @@ namespace OAuthApp
             // this app made the request which resulted in authorization.
             if (incoming_state != state)
             {
-                output(String.Format("Received request with invalid state ({0})", incoming_state));
+                Output(String.Format("Received request with invalid state ({0})", incoming_state));
                 return;
             }
-            output("Authorization code: " + code);
+            Output("Authorization code: " + code);
 
             // Starts the code exchange at the Token Endpoint.
             performCodeExchange(code, code_verifier, redirectURI, nonce);
@@ -186,7 +177,7 @@ namespace OAuthApp
         /// <param name="redirectURI"></param>
         async void performCodeExchange(string code, string code_verifier, string redirectURI, string nonce)
         {
-            output("Exchanging code for tokens...");
+            Output("Exchanging code for tokens...");
 
             string state = randomDataBase64url(32);
             // builds the  request
@@ -215,8 +206,8 @@ namespace OAuthApp
 
                 string id_token = "";
 
-                output("Request: " + tokenRequestURI);
-                output("Method: " + tokenRequest.Method);
+                Output("Request: " + tokenRequestURI);
+                Output("Method: " + tokenRequest.Method);
                 //output("Header: code :" + tokenRequest.Headers["code"].ToString());
                 //output("Header: code_verifier :" + tokenRequest.Headers["code_verifier"].ToString());
 
@@ -224,7 +215,7 @@ namespace OAuthApp
                 {
                     // reads response body
                     string responseText = await reader.ReadToEndAsync();
-                    output("user_info: " + JsonConvert.SerializeObject(responseText));
+                    Output("user_info: " + JsonConvert.SerializeObject(responseText));
                 }
 
                 //RefershAccessToken(refreshToken)
@@ -237,12 +228,12 @@ namespace OAuthApp
                     var response = ex.Response as HttpWebResponse;
                     if (response != null)
                     {
-                        output("HTTP: " + response.StatusCode);
+                        Output("HTTP: " + response.StatusCode);
                         using (StreamReader reader = new StreamReader(response.GetResponseStream()))
                         {
                             // reads response body
                             string responseText = await reader.ReadToEndAsync();
-                            output(responseText);
+                            Output(responseText);
                         }
                     }
 
@@ -264,7 +255,7 @@ namespace OAuthApp
 
         async void userinfoCall(string access_token)
         {
-            output("Making API Call to Userinfo...");
+            Output("Making API Call to Userinfo...");
 
             // builds the  request
             string userinfoRequestURI = "https://www.googleapis.com/oauth2/v3/userinfo";
@@ -274,7 +265,7 @@ namespace OAuthApp
             userinfoRequest.Method = "GET";
             userinfoRequest.Headers.Add(string.Format("Authorization: Bearer {0}", access_token));
             userinfoRequest.ContentType = "application/x-www-form-urlencoded";
-            userinfoRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+            userinfoRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*;q=0.8";
 
             // gets the response
             WebResponse userinfoResponse = await userinfoRequest.GetResponseAsync();
@@ -282,7 +273,7 @@ namespace OAuthApp
             {
                 // reads response body
                 string userinfoResponseText = await userinfoResponseReader.ReadToEndAsync();
-                output(userinfoResponseText);
+                Output(userinfoResponseText);
             }
 
         }
@@ -291,7 +282,7 @@ namespace OAuthApp
         /// Appends the given string to the on-screen log, and the debug console.
         /// </summary>
         /// <param name="output">string to be appended</param>
-        public void output(string output)
+        public void Output(string output)
         {
             textBoxOutput.Text = textBoxOutput.Text + output + Environment.NewLine;
             Console.WriteLine(output);
@@ -342,8 +333,6 @@ namespace OAuthApp
         }
         #endregion
 
-        private static HttpListener currentHttpListener = null;
-        //private static WebSocketServer currentHttpListener = null;
         private async void AuthorizationCodeFlow(object sender, RoutedEventArgs e)
         {
             // Generates state and PKCE values.
@@ -357,7 +346,7 @@ namespace OAuthApp
             string redirectURI = string.Format("http://{0}:{1}/login/", IPAddress.Loopback, GetRandomUnusedPort());
 
             // Creates the OAuth 2.0 authorization request.
-            string authorizationRequest = string.Format("{0}?response_type=code&scope=openid%20profile%20email%20offline_access&redirect_uri={1}&client_id={2}&state={3}&code_challenge={4}&code_challenge_method={5}&nonce={6}&prompt={7}",
+            string authorizationRequest = string.Format("{0}?resPonse_type=code&scope=openid%20profile%20email%20offline_access&redirect_uri={1}&client_id={2}&state={3}&code_challenge={4}&code_challenge_method={5}&nonce={6}&prompt={7}",
                 authorizationEndpoint,
                 System.Uri.EscapeDataString(redirectURI),
                 clientId,
@@ -368,69 +357,60 @@ namespace OAuthApp
                 "none");
 
             // Creates an HttpListener to listen for requests on that redirect URI.
-            currentHttpListener = new HttpListener();
+            HttpListener currentHttpListener = new HttpListener();
             currentHttpListener.Prefixes.Add(redirectURI);
-            output("Listening..");
+            Output("Listening..");
             currentHttpListener.Start();
 
-            output("Send request to web server: " + authorizationEndpoint);
+            Output("Send request to web server: " + authorizationEndpoint);
 
-            string authorizationCode = "";
-            string incomingState = "";
-            try
+            // Opens request in the browser.
+            System.Diagnostics.Process.Start(authorizationRequest);
+            // Waits for the OAuth authorization response.
+            var context = await currentHttpListener.GetContextAsync();
+
+            // Brings this app back to the foreground.
+            this.Activate();
+
+            // Sends an HTTP response to the browser.
+            var response = context.Response;
+
+            var responseOutput = response.OutputStream;
+            Task responseTask = Task.Run(() =>
             {
-                HttpWebRequest testRequest = (HttpWebRequest)WebRequest.Create(authorizationRequest);
-                testRequest.Method = "GET";
-                testRequest.Headers.Add(string.Format("Authorization: Basic {0}", base64Authentication));
-                testRequest.ContentType = "application/x-www-form-urlencoded";
-                testRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*;q=0.8";
-                // gets the response
-                WebResponse tokenResponse = await testRequest.GetResponseAsync();
-
-                // Waits for the OAuth authorization response.
-                HttpListenerContext context = await currentHttpListener.GetContextAsync();
-                // Brings this app back to the foreground.
-                this.Activate();
-
-                // Sends an HTTP response to the browser.
-                var response = context.Response;
-
+                responseOutput.Close();
                 currentHttpListener.Stop();
+                Console.WriteLine("HTTP server stopped.");
+            });
 
-                // Checks for errors.
-                if (context.Request.QueryString.Get("error") != null)
-                {
-                    output(String.Format("OAuth authorization error: {0}.", context.Request.QueryString.Get("error")));
-                    return;
-                }
-                if (context.Request.QueryString.Get("code") == null
-                    || context.Request.QueryString.Get("state") == null)
-                {
-                    output("Malformed authorization response. " + context.Request.QueryString);
-                    return;
-                }
-
-                // extracts the code
-                var sr = context.Request.QueryString.ToString();
-                authorizationCode = context.Request.QueryString.Get("code");
-                incomingState = context.Request.QueryString.Get("state");
-                var scope = context.Request.QueryString.Get("scope");
-                var authUser = context.Request.QueryString.Get("authuser");
-                var promt = context.Request.QueryString.Get("prompt");
-            }
-            catch (Exception ex)
+            // Checks for errors.
+            if (context.Request.QueryString.Get("error") != null)
             {
-                output(ex.Message);
+                Output(String.Format("OAuth authorization error: {0}.", context.Request.QueryString.Get("error")));
+                return;
+            }
+            if (context.Request.QueryString.Get("code") == null
+                || context.Request.QueryString.Get("state") == null)
+            {
+                Output("Malformed authorization response. " + context.Request.QueryString);
                 return;
             }
 
-            if (incomingState != state)
+            // extracts the code
+            var sr = context.Request.QueryString.ToString();
+            var authorizationCode = context.Request.QueryString.Get("code");
+            var incoming_state = context.Request.QueryString.Get("state");
+            var scope = context.Request.QueryString.Get("scope");
+            var authUser = context.Request.QueryString.Get("authuser");
+            var promt = context.Request.QueryString.Get("prompt");
+
+            if (incoming_state != state)
             {
-                output("state is not the same!");
+                Output("state is not the same!");
                 return;
             }
 
-            output("For test, handle redirect");
+            Output("For test, handle redirect");
             if (!string.IsNullOrEmpty(this.UserName.Text) &&
                 !string.IsNullOrEmpty(this.Password.Text))
             {
@@ -440,23 +420,7 @@ namespace OAuthApp
                 //string state1 = randomDataBase64url(32);
 
                 //basicAuthentication("https://localhost:7180/oauth2/authorize", clientId, redirectUri, state, nonce);
-                AuthenticationWithCode(authorizationCode, code_verifier, redirectURI);
-            }
-        }
-        private void Receive()
-        {
-            currentHttpListener.BeginGetContext(new AsyncCallback(ListenerCallback), currentHttpListener);
-        }
-
-        private void ListenerCallback(IAsyncResult result)
-        {
-            if (currentHttpListener.IsListening)
-            {
-                var context = currentHttpListener.EndGetContext(result);
-                var request = context.Request;
-                // Handle the request (e.g., read headers, process data, etc.)
-                output($"Received request: {request.Url}");
-                Receive(); // Continue listening for more requests
+                await AuthenticationWithCode(authorizationCode, code_verifier, redirectURI);
             }
         }
 
@@ -470,7 +434,7 @@ namespace OAuthApp
                 // TODO: send to identityserver to get id token and access token
                 HttpWebRequest tokenRequest = (HttpWebRequest)WebRequest.Create(tokenEndpoint);
                 tokenRequest.Method = "POST";
-                tokenRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+                tokenRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*;q=0.8";
                 byte[] _byteVersion = Encoding.ASCII.GetBytes(tokenEndpointBody);
                 tokenRequest.ContentLength = _byteVersion.Length;
                 Stream stream = tokenRequest.GetRequestStream();
@@ -518,7 +482,7 @@ namespace OAuthApp
                     // reads response body
                     string userinfoResponseText = await userinfoResponseReader.ReadToEndAsync();
                     //output(userinfoResponseText);
-                    output("user_info" + userinfoResponseText);
+                    Output("user_info" + userinfoResponseText);
                 }
 
                 //output("refresh access Token");
@@ -531,13 +495,13 @@ namespace OAuthApp
                     var response = ex.Response as HttpWebResponse;
                     if (response != null)
                     {
-                        output("HTTP: " + response.StatusCode);
+                        Output("HTTP: " + response.StatusCode);
                         using (StreamReader reader = new StreamReader(response.GetResponseStream()))
                         {
                             // reads response body
                             string responseText = await reader.ReadToEndAsync();
                             var details = JsonConvert.DeserializeObject<ProblemDetails>(responseText);
-                            output("error: " + $"status: {details.Status}; message: {details.Detail}");
+                            Output("error: " + $"status: {details.Status}; message: {details.Detail}");
                         }
                     }
 
@@ -545,7 +509,7 @@ namespace OAuthApp
             }
             catch (Exception ex)
             {
-                output("error" + ex.Message);
+                Output("error" + ex.Message);
             }
         }
 
@@ -570,7 +534,7 @@ namespace OAuthApp
                 var temp = await reader.ReadToEndAsync();
 
                 //var sr = JsonConvert.DeserializeObject<Dictionary<string, string>>(temp);
-                output("refresh access token result: " + temp);
+                Output("refresh access token result: " + temp);
             }
         }
 
@@ -619,7 +583,7 @@ namespace OAuthApp
             }
             catch (Exception ex)
             {
-                output(ex.Message);
+                Output(ex.Message);
                 return false;
             }
 
@@ -636,7 +600,7 @@ namespace OAuthApp
         private async void Register(object sender, RoutedEventArgs e)
         {
             string register_uri = registerEndpoint;
-            output("Send request to web server: " + register_uri);
+            Output("Send request to web server: " + register_uri);
 
             if (!string.IsNullOrEmpty(this.UserName.Text)
                 && !string.IsNullOrEmpty(this.Password.Text)
@@ -653,7 +617,7 @@ namespace OAuthApp
         {
             try
             {
-                output("Making API Call to Register new user...");
+                Output("Making API Call to Register new user...");
 
                 string state = randomDataBase64url(32);
                 var base64Authentication = Base64Encode(string.Format("{0}:{1}", this.UserName.Text, this.Password.Text));
@@ -671,8 +635,8 @@ namespace OAuthApp
                 registerRequest.ContentType = "application/x-www-form-urlencoded";
                 registerRequest.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*;q=0.8";
 
-                output("Request: " + registerUserRequestUri);
-                output("Method: " + registerRequest.Method);
+                Output("Request: " + registerUserRequestUri);
+                Output("Method: " + registerRequest.Method);
 
                 // gets the response
                 WebResponse userinfoResponse = await registerRequest.GetResponseAsync();
@@ -680,13 +644,13 @@ namespace OAuthApp
                 {
                     // reads response body
                     string userinfoResponseText = await userinfoResponseReader.ReadToEndAsync();
-                    output(userinfoResponseText);
+                    Output(userinfoResponseText);
                 }
 
             }
             catch (Exception ex)
             {
-                output(ex.Message);
+                Output(ex.Message);
             }
 
         }
