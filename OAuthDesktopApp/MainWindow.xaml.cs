@@ -354,7 +354,7 @@ namespace OAuthApp
                 code_challenge,
                 code_challenge_method,
                 nonce,
-                "none");
+                "consent");
 
             // Creates an HttpListener to listen for requests on that redirect URI.
             HttpListener currentHttpListener = new HttpListener();
