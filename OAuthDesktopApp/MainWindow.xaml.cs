@@ -185,7 +185,7 @@ namespace OAuthApp
             string tokenRequestURI = "https://localhost:7180/oauth2/authorize/google";
             string redirectUri = System.Uri.EscapeDataString(redirectURI);
 
-            string requestBody = $"code={code}&state={state}&client_id={clientId}&client_secret={clientSecret}&grant_type=authorization_code&code_verifier={code_verifier}&redirect_uri={redirectUri}&nonce={nonce}";
+            string requestBody = $"code={code}&state={state}&client_id={clientId}&grant_type=authorization_code&code_verifier={code_verifier}&redirect_uri={redirectUri}&nonce={nonce}";
             // sends the request
             // TODO: need to send state, but I ignore that step for now
             HttpWebRequest tokenRequest = (HttpWebRequest)WebRequest.Create($"{tokenRequestURI}");
@@ -333,95 +333,119 @@ namespace OAuthApp
         }
         #endregion
 
+        private HttpListener currentHttpListener;
+        private HttpListener GetListenerWithSpecificPort(string redirectURI)
+        {
+            if (currentHttpListener == null)
+            {
+                currentHttpListener = new HttpListener();
+                currentHttpListener.Prefixes.Add(redirectURI);
+            }
+
+            return currentHttpListener;
+        }
+
         private async void AuthorizationCodeFlow(object sender, RoutedEventArgs e)
         {
-            // Generates state and PKCE values.
-            string state = randomDataBase64url(32);
-            string nonce = randomDataBase64url(32);
-            string code_verifier = randomDataBase64url(32);
-            string code_challenge = base64urlencodeNoPadding(sha256(code_verifier));
-            const string code_challenge_method = "S256";
-            var base64Authentication = Base64Encode(string.Format("{0}:{1}", this.UserName.Text, this.Password.Text));
-
-            string redirectURI = string.Format("http://{0}:{1}/login/", IPAddress.Loopback, GetRandomUnusedPort());
-
-            // Creates the OAuth 2.0 authorization request.
-            string authorizationRequest = string.Format("{0}?resPonse_type=code&scope=openid%20profile%20email%20offline_access&redirect_uri={1}&client_id={2}&state={3}&code_challenge={4}&code_challenge_method={5}&nonce={6}&prompt={7}",
-                authorizationEndpoint,
-                System.Uri.EscapeDataString(redirectURI),
-                clientId,
-                state,
-                code_challenge,
-                code_challenge_method,
-                nonce,
-                "consent");
-
-            // Creates an HttpListener to listen for requests on that redirect URI.
-            HttpListener currentHttpListener = new HttpListener();
-            currentHttpListener.Prefixes.Add(redirectURI);
-            Output("Listening..");
-            currentHttpListener.Start();
-
-            Output("Send request to web server: " + authorizationEndpoint);
-
-            // Opens request in the browser.
-            System.Diagnostics.Process.Start(authorizationRequest);
-            // Waits for the OAuth authorization response.
-            var context = await currentHttpListener.GetContextAsync();
-
-            // Brings this app back to the foreground.
-            this.Activate();
-
-            // Sends an HTTP response to the browser.
-            var response = context.Response;
-
-            var responseOutput = response.OutputStream;
-            Task responseTask = Task.Run(() =>
+            HttpListener currentHttpListener = null;
+            try
             {
-                responseOutput.Close();
+                // Generates state and PKCE values.
+                string state = randomDataBase64url(32);
+                string nonce = randomDataBase64url(32);
+                string code_verifier = randomDataBase64url(32);
+                string code_challenge = base64urlencodeNoPadding(sha256(code_verifier));
+                const string code_challenge_method = "S256";
+                var base64Authentication = Base64Encode(string.Format("{0}:{1}", this.UserName.Text, this.Password.Text));
+
+                string redirectURI = string.Format("http://{0}:{1}/login/", IPAddress.Loopback, 59867);
+
+                // Creates the OAuth 2.0 authorization request.
+                string authorizationRequest = string.Format("{0}?resPonse_type=code&scope=openid%20profile%20email%20offline_access&redirect_uri={1}&client_id={2}&state={3}&code_challenge={4}&code_challenge_method={5}&nonce={6}&prompt={7}",
+                    authorizationEndpoint,
+                    System.Uri.EscapeDataString(redirectURI),
+                    clientId,
+                    state,
+                    code_challenge,
+                    code_challenge_method,
+                    nonce,
+                    "consent");
+
+                // Creates an HttpListener to listen for requests on that redirect URI.
+                currentHttpListener = GetListenerWithSpecificPort(redirectURI);
+                Output("Listening..");
+                currentHttpListener.Start();
+
+                Output("Send request to web server: " + authorizationEndpoint);
+
+                // Opens request in the browser.
+                System.Diagnostics.Process.Start(authorizationRequest);
+                // Waits for the OAuth authorization response.
+                var context = await currentHttpListener.GetContextAsync();
+
+                // Brings this app back to the foreground.
+                this.Activate();
+
+                // Sends an HTTP response to the browser.
+                var response = context.Response;
+
+                var responseOutput = response.OutputStream;
+                Task responseTask = Task.Run(() =>
+                {
+                    responseOutput.Close();
+                    //currentHttpListener.Stop();
+                    //Console.WriteLine("HTTP server stopped.");
+                });
+
+                // Checks for errors.
+                if (context.Request.QueryString.Get("error") != null)
+                {
+                    Output(String.Format("OAuth authorization error: {0}.", context.Request.QueryString.Get("error")));
+                    return;
+                }
+                if (context.Request.QueryString.Get("code") == null
+                    || context.Request.QueryString.Get("state") == null)
+                {
+                    Output("Malformed authorization response. " + context.Request.QueryString);
+                    return;
+                }
+
+                // extracts the code
+                var sr = context.Request.QueryString.ToString();
+                var authorizationCode = context.Request.QueryString.Get("code");
+                var incoming_state = context.Request.QueryString.Get("state");
+                var scope = context.Request.QueryString.Get("scope");
+                var authUser = context.Request.QueryString.Get("authuser");
+                var promt = context.Request.QueryString.Get("prompt");
+
+                if (incoming_state != state)
+                {
+                    Output("state is not the same!");
+                    return;
+                }
+
+                Output("For test, handle redirect");
+                if (!string.IsNullOrEmpty(this.UserName.Text) &&
+                    !string.IsNullOrEmpty(this.Password.Text))
+                {
+                    // Starts the code exchange at the Token Endpoint.
+                    // TODO: nonce will be received from web server, along with location uri, redirect uri
+                    //nonce = randomDataBase64url(32);
+                    //string state1 = randomDataBase64url(32);
+
+                    //basicAuthentication("https://localhost:7180/oauth2/authorize", clientId, redirectUri, state, nonce);
+                    await AuthenticationWithCode(authorizationCode, code_verifier, redirectURI);
+                }
+            }
+            catch (Exception ex)
+            {
+                Output($"error: {ex.Message}");
+            }
+            finally
+            {
                 currentHttpListener.Stop();
                 Console.WriteLine("HTTP server stopped.");
-            });
-
-            // Checks for errors.
-            if (context.Request.QueryString.Get("error") != null)
-            {
-                Output(String.Format("OAuth authorization error: {0}.", context.Request.QueryString.Get("error")));
-                return;
-            }
-            if (context.Request.QueryString.Get("code") == null
-                || context.Request.QueryString.Get("state") == null)
-            {
-                Output("Malformed authorization response. " + context.Request.QueryString);
-                return;
-            }
-
-            // extracts the code
-            var sr = context.Request.QueryString.ToString();
-            var authorizationCode = context.Request.QueryString.Get("code");
-            var incoming_state = context.Request.QueryString.Get("state");
-            var scope = context.Request.QueryString.Get("scope");
-            var authUser = context.Request.QueryString.Get("authuser");
-            var promt = context.Request.QueryString.Get("prompt");
-
-            if (incoming_state != state)
-            {
-                Output("state is not the same!");
-                return;
-            }
-
-            Output("For test, handle redirect");
-            if (!string.IsNullOrEmpty(this.UserName.Text) &&
-                !string.IsNullOrEmpty(this.Password.Text))
-            {
-                // Starts the code exchange at the Token Endpoint.
-                // TODO: nonce will be received from web server, along with location uri, redirect uri
-                //nonce = randomDataBase64url(32);
-                //string state1 = randomDataBase64url(32);
-
-                //basicAuthentication("https://localhost:7180/oauth2/authorize", clientId, redirectUri, state, nonce);
-                await AuthenticationWithCode(authorizationCode, code_verifier, redirectURI);
-            }
+            }            
         }
 
         private async Task AuthenticationWithCode(string authorizationCode, string codeVerifier, string redirectURI)
@@ -520,6 +544,7 @@ namespace OAuthApp
 
             HttpWebRequest refreshAccessToken = (HttpWebRequest)WebRequest.Create(tokenEndpoint);
             refreshAccessToken.Method = "POST";
+            //refreshAccessToken.Headers.Add();
             refreshAccessToken.Accept = "Accept=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
             byte[] _byteVersion = Encoding.ASCII.GetBytes(refreshAccessTokenBody);
             refreshAccessToken.ContentLength = _byteVersion.Length;
@@ -667,7 +692,7 @@ namespace OAuthApp
     //     https://tools.ietf.org/html/rfc7807.
     public class ProblemDetails
     {
-        public ProblemDetails(){ }
+        public ProblemDetails() { }
 
         //
         // Summary:
